@@ -394,6 +394,7 @@ class Program
 
             using var form = new MultipartFormDataContent();
             using var fileStream = File.OpenRead(tempTxtFile);
+
             form.Add(new StreamContent(fileStream), "file", "test.txt");
             form.Add(new StringContent(Guid.NewGuid().ToString()), "studentId");
             form.Add(new StringContent(Guid.NewGuid().ToString()), "assignmentId");
