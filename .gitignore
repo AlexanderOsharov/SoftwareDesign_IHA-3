@@ -1,0 +1,60 @@
+# Папки сборки и временные файлы .NET
+bin/
+obj/
+artifacts/
+publish/
+TestResults/
+
+# Файлы Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Файлы Rider
+.idea/
+
+# Файлы VS Code
+.vscode/
+
+# Пакеты NuGet
+packages/
+*.nupkg
+*.nuspec
+!.nupkg.metadata
+
+# Docker-артефакты
+.dockerignore
+
+# Секреты и локальные конфигурации
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+*.pubxml
+*.publishproj
+
+# macOS
+.DS_Store
+
+# Linux / Windows
+Thumbs.db
+desktop.ini
+
+# Резервные и временные файлы редакторов
+*~
+*.swp
+*.tmp
+
+# Coverage результаты
+coverage/
+coverage.xml
+*.opencover.xml
+*.lcov
+
+# Файлы логов
+*.log
+logs/
+
+# Файлы от dotnet CLI
+dotnet-*.json

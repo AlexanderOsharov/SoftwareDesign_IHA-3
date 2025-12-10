@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: metadata_db
+      POSTGRES_USER: metadata_user
+      POSTGRES_PASSWORD: metadata_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metadata_user -d metadata_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  metadata-service:
+    build:
+      context: .
+      dockerfile: src/MetadataService/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=metadata_db;Username=metadata_user;Password=metadata_pass"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
+    volumes:
+      - metadata_logs:/app/logs
+
+  file-storing:
+    build:
+      context: .
+      dockerfile: src/FileStoringService/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Storage__Path: "/app/files"
+    ports:
+      - "8082:8080"
+    volumes:
+      - file_storage:/app/files
+      - file_storing_logs:/app/logs
+
+  file-analysis:
+    build:
+      context: .
+      dockerfile: src/FileAnalysisService/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Storage__Path: "/app/reports"
+      ServiceUrls__FileStoring: "http://file-storing:8080"
+      ServiceUrls__Metadata: "http://metadata-service:8080"
+    depends_on:
+      - metadata-service
+      - file-storing
+    ports:
+      - "8083:8080"
+    volumes:
+      - report_storage:/app/reports
+      - file_analysis_logs:/app/logs
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/ApiGateway/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ServiceUrls__Metadata: "http://metadata-service:8080"
+      ServiceUrls__FileStoring: "http://file-storing:8080"
+      ServiceUrls__FileAnalysis: "http://file-analysis:8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - metadata-service
+      - file-storing
+      - file-analysis
+  console-client:
+    build:
+      context: .
+      dockerfile: src/ConsoleClient/Dockerfile
+    environment:
+      - API_GATEWAY_URL=http://api-gateway:8080
+    depends_on:
+      - api-gateway
+    stdin_open: true
+    tty: true
+
+volumes:
+  postgres_data:
+  file_storage:
+  report_storage:
+  metadata_logs:
+  file_storing_logs:
+  file_analysis_logs:
