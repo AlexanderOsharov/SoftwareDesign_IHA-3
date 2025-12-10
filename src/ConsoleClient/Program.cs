@@ -168,7 +168,6 @@ class Program
                         var json = await response.Content.ReadAsStringAsync();
                         AnsiConsole.WriteLine($"Raw JSON response:\n{json}");
                         
-                        // 🔥 ИСПРАВЛЕНИЕ: ИСПОЛЬЗУЕМ _jsonOptions!
                         var result = JsonSerializer.Deserialize<ReportResponse>(json, _jsonOptions);
                         
                         if (result?.Work != null || result?.Report != null)
@@ -307,7 +306,6 @@ class Program
             
             if (response.IsSuccessStatusCode)
             {
-                // 🔥 ИСПРАВЛЕНИЕ: ИСПОЛЬЗУЕМ _jsonOptions!
                 var result = JsonSerializer.Deserialize<ReportResponse>(json, _jsonOptions);
                 if (result != null)
                 {
