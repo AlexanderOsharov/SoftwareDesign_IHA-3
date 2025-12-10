@@ -17,6 +17,22 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
+// Автоматическое применение миграций при старте
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    try
+    {
+        context.Database.Migrate(); // <-- Эта строка применит все миграции
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "An error occurred while migrating the database.");
+        throw;
+    }
+}
+
 // Health endpoint
 app.MapHealthChecks("/health");
 
@@ -53,15 +69,12 @@ app.MapGet("/works/{workId:Guid}", async (ApplicationDbContext db, Guid workId) 
 });
 
 // Обновление ReportId (вызывается из API Gateway)
-app.MapPost("/works/{workId:Guid}/reports/{reportId}", async (ApplicationDbContext db, Guid workId, string reportId) =>
+app.MapPost("/works/{workId:Guid}/reports", async (ApplicationDbContext db, Guid workId, SetReportIdDto dto) =>
 {
     var work = await db.WorkSubmissions.FindAsync(workId);
-    if (work == null)
-        return Results.NotFound();
-
-    work.ReportId = reportId;
+    if (work == null) return Results.NotFound();
+    work.ReportId = dto.ReportId;
     await db.SaveChangesAsync();
-
     return Results.Ok();
 });
 
@@ -81,7 +94,7 @@ app.MapGet("/submissions/by-hash/{textHash}", async (ApplicationDbContext db, st
             w.TextHash
         })
         .ToListAsync();
-
+    Console.WriteLine($"[DEBUG] Found {submissions.Count} submissions with hash {textHash}");
     return Results.Ok(submissions);
 });
 
@@ -102,3 +115,4 @@ app.Run();
 
 record WorkSubmissionDto(Guid StudentId, Guid AssignmentId, string FileId);
 record SetTextHashDto(string TextHash);
+record SetReportIdDto(string ReportId);

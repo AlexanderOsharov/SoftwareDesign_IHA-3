@@ -1,7 +1,7 @@
 using Spectre.Console;
 using System.Text;
 using System.Text.Json;
-using System.Net.Http.Json; // Добавьте эту директиву
+using System.Net.Http.Json;
 
 namespace KpoHw3.ConsoleClient;
 
@@ -9,6 +9,14 @@ class Program
 {
     private static readonly HttpClient _httpClient = new HttpClient();
     private static readonly string _baseUrl = Environment.GetEnvironmentVariable("API_GATEWAY_URL") ?? "http://localhost:8080"; // ApiGateway
+
+    // ⚠️ КРИТИЧЕСКИ ВАЖНЫЕ НАСТРОЙКИ ДЛЯ ДЕСЕРИАЛИЗАЦИИ
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
 
     static async Task Main(string[] args)
     {
@@ -28,9 +36,10 @@ class Program
                         "1. Отправить работу на проверку",
                         "2. Получить отчет по работе",
                         "3. Создать тестовые данные",
-                        "4. Запустить полный тест",
-                        "5. Проверить состояние сервисов",
-                        "6. Выход"
+                        "4. Провести тестирование API",
+                        "5. Запустить полный тест",
+                        "6. Проверить состояние сервисов",
+                        "7. Выход"
                     }));
 
             switch (choice[0])
@@ -45,12 +54,15 @@ class Program
                     await CreateTestDataAsync();
                     break;
                 case '4':
-                    await RunFullTestAsync();
+                    await TestDirectApiCall();
                     break;
                 case '5':
-                    await CheckServicesAsync();
+                    await RunFullTestAsync();
                     break;
                 case '6':
+                    await CheckServicesAsync();
+                    break;
+                case '7':
                     AnsiConsole.MarkupLine("[green]До свидания![/]");
                     return;
             }
@@ -98,7 +110,8 @@ class Program
                 
                     if (response.IsSuccessStatusCode)
                     {
-                        result = await response.Content.ReadFromJsonAsync<SubmitWorkResponse>();
+                        // Используем ReadFromJsonAsync для согласованности
+                        result = await response.Content.ReadFromJsonAsync<SubmitWorkResponse>(_jsonOptions);
                         success = true;
                     }
                     else
@@ -144,34 +157,50 @@ class Program
             AnsiConsole.MarkupLine("[yellow]Получение отчета...[/]");
             
             // Пробуем несколько раз с паузами
-            for (int attempt = 0; attempt < 5; attempt++)
+            for (int attempt = 0; attempt < 5; attempt++) // максимум 5 попыток
             {
-                var response = await _httpClient.GetAsync($"{_baseUrl}/api/works/{workId}/reports");
-                
-                if (response.IsSuccessStatusCode)
+                try
                 {
-                    var json = await response.Content.ReadAsStringAsync();
-                    var result = JsonSerializer.Deserialize<ReportResponse>(json);
-                    
-                    if (result?.Report != null)
+                    var response = await _httpClient.GetAsync($"{_baseUrl}/api/works/{workId}/reports");
+                
+                    if (response.IsSuccessStatusCode)
                     {
-                        DisplayReport(result);
+                        var json = await response.Content.ReadAsStringAsync();
+                        AnsiConsole.WriteLine($"Raw JSON response:\n{json}");
+                        
+                        // 🔥 ИСПРАВЛЕНИЕ: ИСПОЛЬЗУЕМ _jsonOptions!
+                        var result = JsonSerializer.Deserialize<ReportResponse>(json, _jsonOptions);
+                        
+                        if (result?.Work != null || result?.Report != null)
+                        {
+                            DisplayReport(result);
+                            return;
+                        }
+                    }
+                    else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        AnsiConsole.MarkupLine($"[yellow]Работа не найдена (404)[/]");
                         return;
                     }
+                    
+                    if (attempt < 4)
+                    {
+                        AnsiConsole.MarkupLine($"[grey]Попытка {attempt + 1}/5, ожидание 3 секунды...[/]");
+                        await Task.Delay(3000);
+                    }
                 }
-                
-                if (attempt < 4)
+                catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"[grey]Попытка {attempt + 1}/5, ожидание 2 секунды...[/]");
-                    await Task.Delay(2000);
+                    AnsiConsole.MarkupLine($"[red]Ошибка на попытке {attempt + 1}: {ex.Message}[/]");
+                    if (attempt < 4) await Task.Delay(2000);
                 }
             }
-            
             AnsiConsole.MarkupLine($"[yellow]Отчет еще не готов или работа не найдена[/]");
         }
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[red]✗ Ошибка: {ex.Message}[/]");
+            Console.WriteLine($"StackTrace: {ex.StackTrace}");
         }
     }
 
@@ -188,23 +217,23 @@ class Program
         table.AddRow("WorkId", report.Work?.WorkId.ToString() ?? "N/A");
         table.AddRow("StudentId", report.Work?.StudentId.ToString() ?? "N/A");
         table.AddRow("AssignmentId", report.Work?.AssignmentId.ToString() ?? "N/A");
-        table.AddRow("SubmittedAt", report.Work?.SubmittedAt.ToString() ?? "N/A");
+        table.AddRow("SubmittedAt", report.Work?.SubmittedAt.ToString("O") ?? "N/A");
 
         if (report.Report != null)
         {
             table.AddRow("[bold]Анализ[/]", "");
-            table.AddRow("ReportId", report.Report.ReportId);
+            table.AddRow("ReportId", report.Report.ReportId ?? "N/A");
             table.AddRow("Обнаружен плагиат", report.Report.Plagiarism ? "[red]ДА[/]" : "[green]НЕТ[/]");
             table.AddRow("Облако слов", report.Report.WordCloudUrl ?? "Не сгенерировано");
             
-            if (report.Report.Plagiarism && report.Report.PlagiarismEvidence.Any())
+            if (report.Report.Plagiarism && report.Report.PlagiarismEvidence?.Any() == true)
             {
                 table.AddRow("[bold]Найденные совпадения[/]", "");
                 foreach (var evidence in report.Report.PlagiarismEvidence)
                 {
                     table.AddRow($"  WorkId", evidence.WorkId.ToString());
                     table.AddRow($"  StudentId", evidence.StudentId.ToString());
-                    table.AddRow($"  SubmittedAt", evidence.SubmittedAt.ToString());
+                    table.AddRow($"  SubmittedAt", evidence.SubmittedAt.ToString("O"));
                 }
             }
         }
@@ -250,8 +279,6 @@ class Program
                         "Алгоритмы сортировки важны в программировании. Быстрая сортировка - эффективный алгоритм.");
 
                     // Файл 3 - уникальный
-                    var file3 = Path.Combine(testDir, "work3.docx");
-                    // Для docx нужно использовать библиотеку, но для простоты создаем txt
                     var file3txt = Path.Combine(testDir, "work3.txt");
                     await File.WriteAllTextAsync(file3txt,
                         "Исследование структур данных. Деревья и графы используются для хранения данных.");
@@ -264,6 +291,34 @@ class Program
                     AnsiConsole.MarkupLine($"[red]✗ Ошибка: {ex.Message}[/]");
                 }
             });
+    }
+
+    static async Task TestDirectApiCall()
+    {
+        var workId = AnsiConsole.Ask<Guid>("Введите WorkId для теста API:");
+        
+        try
+        {
+            var response = await _httpClient.GetAsync($"{_baseUrl}/api/works/{workId}/reports");
+            var json = await response.Content.ReadAsStringAsync();
+            
+            AnsiConsole.WriteLine($"Status Code: {response.StatusCode}");
+            AnsiConsole.WriteLine($"Response JSON:\n{json}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                // 🔥 ИСПРАВЛЕНИЕ: ИСПОЛЬЗУЕМ _jsonOptions!
+                var result = JsonSerializer.Deserialize<ReportResponse>(json, _jsonOptions);
+                if (result != null)
+                {
+                    DisplayReport(result);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Ошибка: {ex.Message}[/]");
+        }
     }
 
     static async Task RunFullTestAsync()
@@ -353,7 +408,7 @@ class Program
     
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<SubmitWorkResponse>();
+                var result = await response.Content.ReadFromJsonAsync<SubmitWorkResponse>(_jsonOptions);
                 return ("Submit Work", true, $"WorkId: {result?.WorkId}");
             }
             else
@@ -409,5 +464,5 @@ class Program
 public record SubmitWorkResponse(Guid? WorkId, string? FileId, bool AnalysisStarted);
 public record ReportResponse(WorkMetadata? Work, AnalysisReport? Report);
 public record WorkMetadata(Guid WorkId, Guid StudentId, Guid AssignmentId, DateTime SubmittedAt, string FileId, string? ReportId);
-public record AnalysisReport(string ReportId, string FileId, bool Plagiarism, List<PlagiarismEvidence> PlagiarismEvidence, string? WordCloudUrl);
+public record AnalysisReport(string? ReportId, string FileId, bool Plagiarism, List<PlagiarismEvidence> PlagiarismEvidence, string? WordCloudUrl, DateTime CreatedAt);
 public record PlagiarismEvidence(Guid WorkId, Guid StudentId, DateTime SubmittedAt);

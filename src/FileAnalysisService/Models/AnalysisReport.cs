@@ -7,6 +7,7 @@ public class AnalysisReport
     public bool Plagiarism { get; set; }
     public List<PlagiarismEvidence> PlagiarismEvidence { get; set; } = new();
     public string? WordCloudUrl { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public class PlagiarismEvidence

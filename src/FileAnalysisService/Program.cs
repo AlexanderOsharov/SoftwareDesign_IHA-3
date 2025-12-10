@@ -9,9 +9,16 @@ using Polly;
 // Вспомогательные методы
 static string NormalizeText(string text)
 {
-    return string.Concat(text.Where(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c)))
-                  .ToLowerInvariant()
-                  .Trim();
+    if (string.IsNullOrEmpty(text))
+        return string.Empty;
+
+    // Только оставляем буквы, цифры и пробелы, приводим к нижнему регистру
+    var result = string.Concat(text.Select(c => 
+        char.IsLetterOrDigit(c) || char.IsWhiteSpace(c) ? c : ' '));
+    
+    return result.ToLowerInvariant()
+                 .Replace("  ", " ")
+                 .Trim();
 }
 
 static string ComputeSha256(string input)
@@ -87,22 +94,43 @@ app.MapPost("/analyze", async (
     // 3. Нормализуем и хешируем
     var normalized = NormalizeText(text);
     var textHash = ComputeSha256(normalized);
+    var updateHashResponse = await metaClient.UpdateTextHashAsync(request.WorkId, textHash);
+    if (!updateHashResponse?.IsSuccessStatusCode ?? true)
+    {
+        Console.WriteLine($"⚠️ Failed to update TextHash for WorkId {request.WorkId}");
+    }
 
     // 4. Проверяем дубликаты
     var earlierSubmissions = await metaClient.GetSubmissionsWithHashAsync(textHash);
+    Console.WriteLine($"[DEBUG] TextHash: {textHash}");
+    Console.WriteLine($"[DEBUG] Earlier submissions count: {earlierSubmissions?.Count ?? 0}");
     var plagiarism = false;
     var evidence = new List<PlagiarismEvidence>();
     if (earlierSubmissions?.Count > 0)
     {
-        plagiarism = true;
-        evidence = earlierSubmissions
-            .Where(s => s.WorkId != request.WorkId) // исключаем себя
-            .Select(s => new PlagiarismEvidence
-            {
-                WorkId = s.WorkId,
-                StudentId = s.StudentId,
-                SubmittedAt = s.SubmittedAt
-            }).ToList();
+        var otherSubmissions = earlierSubmissions
+        .Where(s => s.WorkId != request.WorkId) // исключаем себя
+        .ToList();
+    
+        if (otherSubmissions.Any())
+        {
+            plagiarism = true;
+            evidence = otherSubmissions
+                .Select(s => new PlagiarismEvidence
+                {
+                    WorkId = s.WorkId,
+                    StudentId = s.StudentId,
+                    SubmittedAt = s.SubmittedAt
+                }).ToList();
+ 
+            Console.WriteLine($"[DEBUG] Found {evidence.Count} plagiarized submissions"); 
+        }
+
+        foreach (var sub in earlierSubmissions)
+        {
+            Console.WriteLine($"[DEBUG] Found submission: WorkId={sub.WorkId}, StudentId={sub.StudentId}");
+        }
+        
     }
 
     // 5. Генерируем облако слов
@@ -119,6 +147,7 @@ app.MapPost("/analyze", async (
         WordCloudUrl = wordCloudUrl
     };
     await storage.SaveReportAsync(report);
+    Console.WriteLine($"[DEBUG] Generated ReportId: {report.ReportId} for WorkId: {request.WorkId}");
     
     // 7. Обновляем ReportId в MetadataService через API Gateway
     try
