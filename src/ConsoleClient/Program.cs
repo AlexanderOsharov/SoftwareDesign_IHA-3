@@ -447,6 +447,7 @@ class Program
                     response.IsSuccessStatusCode ? "[green]✓ Работает[/]" : "[red]✗ Ошибка[/]",
                     url
                 );
+
             }
             catch
             {
